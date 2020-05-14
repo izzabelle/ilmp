@@ -12,3 +12,5 @@ futures-util = "0.3.5"
 uuid = { version  = "0.8.1", features = ["v4"] }
 chrono = "0.4.11"
 ring = "0.16.13"
+anyhow = "1.0.30"
+thiserror = "1.0.17"
