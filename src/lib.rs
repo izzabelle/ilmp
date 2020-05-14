@@ -148,6 +148,7 @@ where
     stream.read(&mut contents).await?;
 
     let packet = Packet::from_network(packet_kind, contents, checksum);
+    packet.verify_integrity()?;
 
     Ok(Some(packet))
 }
