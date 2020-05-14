@@ -41,25 +41,12 @@ pub struct Packet {
 
 impl Packet {
     /// create a new `Packet`
-    ///
-    /// should not be used when receiving data over a stream
     pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
         let checksum = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
         Packet {
             kind,
             checksum,
             contents,
-        }
-    }
-
-    /// creates a new `Packet` from data received over a stream
-    ///
-    /// should not be used when creating a fresh `Packet`
-    pub fn from_network(kind: PacketKind, contents: Vec<u8>, checksum: Vec<u8>) -> Packet {
-        Packet {
-            kind,
-            contents,
-            checksum,
         }
     }
 
@@ -144,7 +131,7 @@ where
         return Ok(None);
     }
 
-    let packet_kind = PacketKind::from_u8(info_buf[0]).unwrap();
+    let kind = PacketKind::from_u8(info_buf[0]).unwrap();
     let length = u32::from_le_bytes(info_buf[1..9].try_into().unwrap()) as usize;
 
     let mut checksum: Vec<u8> = vec![0; 32];
@@ -153,7 +140,11 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet::from_network(packet_kind, contents, checksum);
+    let packet = Packet {
+        kind,
+        contents,
+        checksum,
+    };
     packet.verify_integrity()?;
 
     Ok(Some(packet))
