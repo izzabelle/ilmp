@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
+use orion::aead;
 use std::convert::TryInto;
 use std::marker::Unpin;
 
@@ -49,6 +50,8 @@ impl Packet {
 }
 
 /// reads a `Packet` from a stream
+///
+/// if `Ok(None)` is returned the stream has been disconnected.
 pub async fn read<S>(stream: &mut S) -> Result<Option<Packet>>
 where
     S: AsyncReadExt + Unpin,
@@ -70,6 +73,23 @@ where
     Ok(Some(packet))
 }
 
+/// reads a `Packet` from a stream and decrypts
+///
+/// if `Ok(None)` is returned the stream has been disconnected.
+pub async fn read_encrypted<S>(stream: &mut S, key: &aead::SecretKey) -> Result<Option<Packet>>
+where
+    S: AsyncReadExt + Unpin,
+{
+    let packet = read(stream).await?;
+    match packet {
+        None => Ok(packet),
+        Some(mut packet) => {
+            packet.contents = aead::open(&key, &packet.contents)?;
+            Ok(Some(packet))
+        }
+    }
+}
+
 /// Writes a `Sendable` packet to a stream
 pub async fn write<S, P>(stream: &mut S, packet: P) -> Result<()>
 where
@@ -77,6 +97,19 @@ where
     P: Sendable,
 {
     let network_packet = packet.to_packet()?.to_network_packet();
+    stream.write(&network_packet.0).await?;
+    Ok(())
+}
+
+/// Writes an encrypted `Sendable` packet to a stream
+pub async fn write_encrypted<S, P>(stream: &mut S, packet: P, key: &aead::SecretKey) -> Result<()>
+where
+    S: AsyncWriteExt + Unpin,
+    P: Sendable,
+{
+    let mut packet = packet.to_packet()?;
+    packet.contents = aead::seal(&key, &packet.contents)?;
+    let network_packet = packet.to_network_packet();
     stream.write(&network_packet.0).await?;
     Ok(())
 }
