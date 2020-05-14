@@ -3,6 +3,7 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// a standard message from a user
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub timestamp: i64,
@@ -12,6 +13,7 @@ pub struct Message {
 }
 
 impl Message {
+    /// create a new message
     pub fn new(username: String, contents: String) -> Message {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();

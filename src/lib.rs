@@ -1,3 +1,4 @@
+//! # Isabelle's Lazy Message Protocol
 #![allow(dead_code)]
 
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,17 +15,20 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 struct NetworkPacket(Vec<u8>);
 
+/// A type of data that can be sent
 pub trait Sendable: Sized {
     fn to_packet(self) -> Result<Packet>;
     fn from_packet(packet: Packet) -> Result<Self>;
 }
 
+/// Data to be sent
 pub struct Packet {
     kind: PacketKind,
     contents: Vec<u8>,
 }
 
 impl Packet {
+    /// Create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
         Packet { kind, contents }
     }
@@ -44,6 +48,7 @@ impl Packet {
     }
 }
 
+/// reads a `Packet` from a stream
 pub async fn read<S>(stream: &mut S) -> Result<Option<Packet>>
 where
     S: AsyncReadExt + Unpin,
@@ -65,6 +70,7 @@ where
     Ok(Some(packet))
 }
 
+/// Writes a `Sendable` packet to a stream
 pub async fn write<S, P>(stream: &mut S, packet: P) -> Result<()>
 where
     S: AsyncWriteExt + Unpin,
@@ -75,13 +81,16 @@ where
     Ok(())
 }
 
+/// Kinds of packets that can be sent
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketKind {
     Message = 0,
+    PublicKey = 1,
 }
 
 impl PacketKind {
+    /// returns `Option<PacketKind> given valid matching variant
     pub fn from_u8(kind: u8) -> Option<PacketKind> {
         match kind {
             0 => Some(PacketKind::Message),
