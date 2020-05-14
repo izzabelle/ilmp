@@ -13,8 +13,6 @@
 //! | `u64::MAX`   | packet contents                     |
 //!
 
-#![allow(dead_code)]
-
 use anyhow::Result;
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
 use ring::digest;
