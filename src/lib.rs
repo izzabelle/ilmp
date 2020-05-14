@@ -13,7 +13,6 @@
 //! | `u64::MAX`   | packet contents                     |
 //!
 
-use anyhow::Result;
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
 use ring::digest;
 use std::convert::TryInto;
@@ -23,11 +22,13 @@ use thiserror::Error;
 mod message;
 pub use message::Message;
 
+pub type Result<T> = std::result::Result<T, IlmpError>;
+
 struct NetworkPacket(Vec<u8>);
 
 /// a type of data that can be sent
 pub trait Sendable: Sized {
-    fn to_packet(self) -> Result<Packet>;
+    fn to_packet(&self) -> Result<Packet>;
     fn from_packet(packet: Packet) -> Result<Self>;
 }
 
@@ -62,7 +63,7 @@ impl Packet {
         }
     }
 
-    fn to_network_packet(self) -> NetworkPacket {
+    fn to_network_packet(&self) -> NetworkPacket {
         let mut contents: Vec<u8> = Vec::new();
 
         // write packet kind byte
@@ -121,6 +122,13 @@ impl PacketKind {
 pub enum IlmpError {
     #[error("checksum integrity check failed: (expected {expected:?} found {found:?})")]
     BadChecksumIntegrity { expected: Vec<u8>, found: Vec<u8> },
+    #[error("std::io error")]
+    // external error conversions
+    StdIo(#[from] std::io::Error),
+    #[error("serde_json error")]
+    SerdeJson(#[from] serde_json::error::Error),
+    #[error("string parsing error")]
+    StringParse(#[from] std::string::FromUtf8Error),
 }
 
 /// reads a `Packet` from a stream

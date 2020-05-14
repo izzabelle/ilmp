@@ -29,7 +29,7 @@ impl Message {
 }
 
 impl crate::Sendable for Message {
-    fn to_packet(self) -> Result<Packet> {
+    fn to_packet(&self) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
         let checksum = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
         let kind = PacketKind::Message;
