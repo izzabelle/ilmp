@@ -5,12 +5,13 @@
 //! I don't know whether or not this is a super practical way of doing things
 //! but i'm lazy and it seems to work so gonna roll with it lol
 //!
-//! | segment size | usage                               |
-//! |--------------|-------------------------------------|
-//! | 1 byte       | u8 signifies the type of packet     |
-//! | 8 byte       | u64 length of the packet contents   |
-//! | 32 byte      | SHA256 packet contents checksum     |
-//! | `u64::MAX`   | packet contents                     |
+//! | segment size | usage                                      |
+//! |--------------|--------------------------------------------|
+//! | 1 byte       | u8 signifies the type of packet            |
+//! | 8 byte       | u64 length of the packet contents          |
+//! | 4 byte       | CRC32 packet contents checksum             |
+//! | 32 byte      | SHA256 packet contents integrity check     |
+//! | `u64::MAX`   | packet contents                            |
 //!
 
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
@@ -35,19 +36,31 @@ pub trait Sendable: Sized {
 /// data to be sent
 pub struct Packet {
     kind: PacketKind,
-    checksum: Vec<u8>,
+    integrity_hash: Vec<u8>,
     contents: Vec<u8>,
 }
 
 impl Packet {
     /// create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
-        let checksum = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
+        let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
         Packet {
             kind,
-            checksum,
+            integrity_hash,
             contents,
         }
+    }
+
+    // generate a checksum from the packet
+    fn generate_checksum(&self) -> u32 {
+        // combine integrity hash and contents
+        let mut hash_and_contents = self.integrity_hash.clone();
+        hash_and_contents.extend_from_slice(&self.contents);
+
+        // generate checksum
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(hash_and_contents.as_ref());
+        hasher.finalize()
     }
 
     fn to_network_packet(&self) -> NetworkPacket {
@@ -61,27 +74,41 @@ impl Packet {
         contents.extend_from_slice(&contents_length.to_le_bytes());
 
         // write checksum
-        contents.extend_from_slice(&self.checksum.as_ref());
+        let checksum = self.generate_checksum();
+        contents.extend_from_slice(&checksum.to_le_bytes());
 
-        // write contents
+        // write hash and contents
+        contents.extend_from_slice(&self.integrity_hash);
         contents.extend_from_slice(&self.contents);
 
         NetworkPacket(contents)
     }
 
-    /// verifies SHA256 checksum
+    /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let found = digest::digest(&digest::SHA256, &self.contents)
+        let expected = digest::digest(&digest::SHA256, &self.contents)
             .as_ref()
             .to_vec();
-        if found == self.checksum {
+
+        if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadChecksumIntegrity {
-                expected: self.checksum.clone(),
-                found,
+            Err(IlmpError::BadHashIntegrity {
+                found: self.integrity_hash.clone(),
+                expected,
             }
             .into())
+        }
+    }
+
+    /// verifies CRC32 checksum
+    pub fn verify_checksum(&self, expected: u32) -> Result<()> {
+        let found = self.generate_checksum();
+
+        if found == expected {
+            Ok(())
+        } else {
+            Err(IlmpError::BadChecksumIntegrity { expected, found })
         }
     }
 }
@@ -108,7 +135,9 @@ impl PacketKind {
 #[derive(Error, Debug)]
 pub enum IlmpError {
     #[error("checksum integrity check failed: (expected {expected:?} found {found:?})")]
-    BadChecksumIntegrity { expected: Vec<u8>, found: Vec<u8> },
+    BadChecksumIntegrity { expected: u32, found: u32 },
+    #[error("hash integrity check failed: (expected {expected:?} found {found:?})")]
+    BadHashIntegrity { expected: Vec<u8>, found: Vec<u8> },
     #[error("std::io error")]
     // external error conversions
     StdIo(#[from] std::io::Error),
@@ -125,17 +154,18 @@ pub async fn read<S>(stream: &mut S) -> Result<Option<Packet>>
 where
     S: AsyncReadExt + Unpin,
 {
-    let mut info_buf = [0u8; 9];
+    let mut info_buf = [0u8; 13];
     let check = stream.read(&mut info_buf).await?;
     if check == 0 {
         return Ok(None);
     }
 
     let kind = PacketKind::from_u8(info_buf[0]).unwrap();
-    let length = u32::from_le_bytes(info_buf[1..9].try_into().unwrap()) as usize;
+    let length = u64::from_le_bytes(info_buf[1..9].try_into().unwrap()) as usize;
+    let checksum = u32::from_le_bytes(info_buf[10..14].try_into().unwrap());
 
-    let mut checksum: Vec<u8> = vec![0; 32];
-    stream.read(&mut checksum).await?;
+    let mut integrity_hash: Vec<u8> = vec![0; 32];
+    stream.read(&mut integrity_hash).await?;
 
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
@@ -143,9 +173,10 @@ where
     let packet = Packet {
         kind,
         contents,
-        checksum,
+        integrity_hash,
     };
     packet.verify_integrity()?;
+    packet.verify_checksum(checksum)?;
 
     Ok(Some(packet))
 }
