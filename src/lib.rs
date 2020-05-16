@@ -35,7 +35,7 @@ pub trait Sendable: Sized {
 
 /// data to be sent
 pub struct Packet {
-    kind: PacketKind,
+    pub kind: PacketKind,
     integrity_hash: Vec<u8>,
     contents: Vec<u8>,
 }
@@ -44,11 +44,7 @@ impl Packet {
     /// create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet {
-            kind,
-            integrity_hash,
-            contents,
-        }
+        Packet { kind, integrity_hash, contents }
     }
 
     // generate a checksum from the packet
@@ -86,18 +82,12 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents)
-            .as_ref()
-            .to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadHashIntegrity {
-                found: self.integrity_hash.clone(),
-                expected,
-            }
-            .into())
+            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
         }
     }
 
@@ -118,7 +108,6 @@ impl Packet {
 #[repr(u8)]
 pub enum PacketKind {
     Message = 0,
-    PublicKey = 1,
 }
 
 impl PacketKind {
@@ -162,7 +151,7 @@ where
 
     let kind = PacketKind::from_u8(info_buf[0]).unwrap();
     let length = u64::from_le_bytes(info_buf[1..9].try_into().unwrap()) as usize;
-    let checksum = u32::from_le_bytes(info_buf[10..14].try_into().unwrap());
+    let checksum = u32::from_le_bytes(info_buf[9..13].try_into().unwrap());
 
     let mut integrity_hash: Vec<u8> = vec![0; 32];
     stream.read(&mut integrity_hash).await?;
@@ -170,11 +159,7 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet {
-        kind,
-        contents,
-        integrity_hash,
-    };
+    let packet = Packet { kind, contents, integrity_hash };
     packet.verify_integrity()?;
     packet.verify_checksum(checksum)?;
 
