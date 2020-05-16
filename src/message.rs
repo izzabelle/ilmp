@@ -1,6 +1,5 @@
 use crate::{Packet, PacketKind, Result};
 use chrono::prelude::*;
-use ring::digest;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,15 +30,10 @@ impl Message {
 impl crate::Sendable for Message {
     fn to_packet(&self) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
-        let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
         let kind = PacketKind::Message;
-
-        Ok(Packet {
-            kind,
-            integrity_hash,
-            contents,
-        })
+        Ok(Packet::new(kind, contents))
     }
+
     fn from_packet(packet: Packet) -> Result<Self> {
         let contents = &String::from_utf8(packet.contents)?;
         let message: Message = serde_json::from_str(contents)?;

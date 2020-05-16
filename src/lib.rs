@@ -14,14 +14,16 @@
 //! | `u64::MAX`   | packet contents                            |
 //!
 
+mod message;
+pub use message::Message;
+mod asymmetric_key;
+pub use asymmetric_key::AsymmetricKey;
+
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
 use ring::digest;
 use std::convert::TryInto;
 use std::marker::Unpin;
 use thiserror::Error;
-
-mod message;
-pub use message::Message;
 
 pub type Result<T> = std::result::Result<T, IlmpError>;
 
@@ -44,7 +46,11 @@ impl Packet {
     /// create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet { kind, integrity_hash, contents }
+        Packet {
+            kind,
+            integrity_hash,
+            contents,
+        }
     }
 
     // generate a checksum from the packet
@@ -82,12 +88,18 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents)
+            .as_ref()
+            .to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
+            Err(IlmpError::BadHashIntegrity {
+                found: self.integrity_hash.clone(),
+                expected,
+            }
+            .into())
         }
     }
 
@@ -107,14 +119,16 @@ impl Packet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketKind {
-    Message = 0,
+    Message = 0x00,
+    AsymmetricKey = 0xff,
 }
 
 impl PacketKind {
     /// returns `Option<PacketKind> given valid matching variant
     pub fn from_u8(kind: u8) -> Option<PacketKind> {
         match kind {
-            0 => Some(PacketKind::Message),
+            0x00 => Some(PacketKind::Message),
+            0xff => Some(PacketKind::AsymmetricKey),
             _ => None,
         }
     }
@@ -127,8 +141,8 @@ pub enum IlmpError {
     BadChecksumIntegrity { expected: u32, found: u32 },
     #[error("hash integrity check failed: (expected {expected:?} found {found:?})")]
     BadHashIntegrity { expected: Vec<u8>, found: Vec<u8> },
-    #[error("std::io error")]
     // external error conversions
+    #[error("std::io error")]
     StdIo(#[from] std::io::Error),
     #[error("serde_json error")]
     SerdeJson(#[from] serde_json::error::Error),
@@ -159,9 +173,14 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet { kind, contents, integrity_hash };
-    packet.verify_integrity()?;
+    let packet = Packet {
+        kind,
+        contents,
+        integrity_hash,
+    };
+
     packet.verify_checksum(checksum)?;
+    packet.verify_integrity()?;
 
     Ok(Some(packet))
 }
