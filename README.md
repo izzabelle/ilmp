@@ -7,9 +7,8 @@ but i'm lazy and it seems to work so gonna roll with it lol
 
 | segment size | usage                                      |
 |--------------|--------------------------------------------|
-| 1 byte       | u8 signifies the type of packet            |
+| 1 byte       | u8 packet type                             |
 | 8 byte       | u64 length of the packet contents          |
 | 4 byte       | CRC32 packet contents checksum             |
 | 32 byte      | SHA256 packet contents integrity check     |
 | `u64::MAX`   | packet contents                            |
-
