@@ -7,7 +7,8 @@
 //!
 //! | segment size | usage                                      |
 //! |--------------|--------------------------------------------|
-//! | 1 byte       | u8 packet type                             |
+//! | 1 byte       | u8 packet kind                             |
+//! | 1 byte       | u8 encrypt kind                            |
 //! | 8 byte       | u64 length of the packet contents          |
 //! | 4 byte       | CRC32 packet contents checksum             |
 //! | 32 byte      | SHA256 packet contents integrity check     |
@@ -20,7 +21,7 @@ mod asymmetric_key;
 pub use asymmetric_key::AsymmetricKey;
 
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
-use ring::digest;
+use ring::{rand, signature::{self, KeyPair},digest};
 use std::convert::TryInto;
 use std::marker::Unpin;
 use thiserror::Error;
@@ -31,26 +32,23 @@ struct NetworkPacket(Vec<u8>);
 
 /// a type of data that can be sent
 pub trait Sendable: Sized {
-    fn to_packet(&self) -> Result<Packet>;
+    fn to_packet(&self, encrypt_kind: EncryptKind) -> Result<Packet>;
     fn from_packet(packet: Packet) -> Result<Self>;
 }
 
 /// data to be sent
 pub struct Packet {
     pub kind: PacketKind,
+    pub encrypt_kind: EncryptKind,
     integrity_hash: Vec<u8>,
     contents: Vec<u8>,
 }
 
 impl Packet {
     /// create a new `Packet`
-    pub fn new(kind: PacketKind, contents: Vec<u8>) -> Packet {
+    pub fn new(kind: PacketKind, contents: Vec<u8>, encrypt_kind: EncryptKind) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet {
-            kind,
-            integrity_hash,
-            contents,
-        }
+        Packet { kind, integrity_hash, contents, encrypt_kind }
     }
 
     // generate a checksum from the packet
@@ -71,6 +69,9 @@ impl Packet {
         // write packet kind byte
         contents.push(self.kind as u8);
 
+        // write encrypt kind byte
+        contents.push(self.encrypt_kind as u8);
+
         // write the packet length
         let contents_length = self.contents.len() as u64;
         contents.extend_from_slice(&contents_length.to_le_bytes());
@@ -88,18 +89,13 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents)
-            .as_ref()
-            .to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadHashIntegrity {
-                found: self.integrity_hash.clone(),
-                expected,
-            }
-            .into())
+            println!("bad integrity");
+            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
         }
     }
 
@@ -110,6 +106,7 @@ impl Packet {
         if found == expected {
             Ok(())
         } else {
+            println!("bad checksum");
             Err(IlmpError::BadChecksumIntegrity { expected, found })
         }
     }
@@ -129,6 +126,86 @@ impl PacketKind {
         match kind {
             0x00 => Some(PacketKind::Message),
             0xff => Some(PacketKind::AsymmetricKey),
+            _ => None,
+        }
+    }
+}
+
+pub trait Encryption {
+    fn kind(&self) -> EncryptKind;
+    fn key(&self) -> Option<Vec<u8>>;
+}
+
+pub struct AsymmetricEncrypt(Vec<u8>);
+
+impl Encryption for AsymmetricEncrypt {
+    fn kind(&self) -> EncryptKind {
+        EncryptKind::Asymmetric
+    }
+
+    fn key(&self) -> Option<Vec<u8>> {
+        Some(self.0.clone())
+    }
+}
+
+impl AsymmetricEncrypt {
+    pub fn new(key: Vec<u8>) -> AsymmetricEncrypt {
+        AsymmetricEncrypt(key)
+    }
+}
+
+pub struct SymmetricEncrypt(Vec<u8>);
+
+impl Encryption for SymmetricEncrypt {
+    fn kind(&self) -> EncryptKind {
+        EncryptKind::Symmetric
+    }
+
+    fn key(&self) -> Option<Vec<u8>> {
+        Some(self.0.clone())
+    }
+}
+
+impl SymmetricEncrypt {
+    pub fn new(key: Vec<u8>) -> SymmetricEncrypt {
+        SymmetricEncrypt(key)
+    }
+}
+
+pub struct NoEncrypt;
+
+impl Encryption for NoEncrypt {
+    fn kind(&self) -> EncryptKind {
+        EncryptKind::None
+    }
+
+    fn key(&self) -> Option<Vec<u8>> {
+        None
+    }
+}
+
+impl NoEncrypt {
+    pub fn new() -> NoEncrypt {
+        NoEncrypt
+    }
+}
+
+/// encryption kind
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EncryptKind {
+    None = 0x00,
+    Asymmetric = 0x80,
+    Symmetric = 0xff,
+}
+
+impl EncryptKind {
+    /// returns `EncryptKind` from u8 if returned value is valid
+    pub fn from_u8(kind: u8) -> Option<EncryptKind> {
+        match kind {
+            0x00 => Some(EncryptKind::None),
+            0x80 => Some(EncryptKind::Asymmetric),
+            0xff => Some(EncryptKind::Symmetric),
             _ => None,
         }
     }
@@ -157,15 +234,16 @@ pub async fn read<S>(stream: &mut S) -> Result<Option<Packet>>
 where
     S: AsyncReadExt + Unpin,
 {
-    let mut info_buf = [0u8; 13];
+    let mut info_buf = [0u8; 14];
     let check = stream.read(&mut info_buf).await?;
     if check == 0 {
         return Ok(None);
     }
 
     let kind = PacketKind::from_u8(info_buf[0]).unwrap();
-    let length = u64::from_le_bytes(info_buf[1..9].try_into().unwrap()) as usize;
-    let checksum = u32::from_le_bytes(info_buf[9..13].try_into().unwrap());
+    let encrypt_kind = EncryptKind::from_u8(info_buf[1]).unwrap();
+    let length = u64::from_le_bytes(info_buf[2..10].try_into().unwrap()) as usize;
+    let checksum = u32::from_le_bytes(info_buf[10..14].try_into().unwrap());
 
     let mut integrity_hash: Vec<u8> = vec![0; 32];
     stream.read(&mut integrity_hash).await?;
@@ -173,11 +251,7 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet {
-        kind,
-        contents,
-        integrity_hash,
-    };
+    let packet = Packet { kind, contents, integrity_hash, encrypt_kind };
 
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
@@ -186,12 +260,23 @@ where
 }
 
 /// writes a `Sendable` packet to a stream
-pub async fn write<S, P>(stream: &mut S, packet: P) -> Result<()>
+pub async fn write<S, P, E>(stream: &mut S, packet: P, encryption: E) -> Result<()>
 where
     S: AsyncWriteExt + Unpin,
     P: Sendable,
+    E: Encryption,
 {
-    let network_packet = packet.to_packet()?.to_network_packet();
-    stream.write(&network_packet.0).await?;
-    Ok(())
+    match encryption.kind() {
+        EncryptKind::None => {
+            let network_packet = packet.to_packet(encryption.kind())?.to_network_packet();
+            stream.write(&network_packet.0).await?;
+            Ok(())
+        }
+        EncryptKind::Asymmetric => {
+            let 
+            let mut packet = packet;
+            packet.contents
+        },
+        EncryptKind::Symmetric => todo!(),
+    }
 }

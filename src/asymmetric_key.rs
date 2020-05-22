@@ -11,18 +11,15 @@ pub struct AsymmetricKey {
 impl AsymmetricKey {
     pub fn new(public_key: Vec<u8>) -> AsymmetricKey {
         let timestamp = Utc::now().timestamp();
-        AsymmetricKey {
-            public_key,
-            timestamp,
-        }
+        AsymmetricKey { public_key, timestamp }
     }
 }
 
 impl crate::Sendable for AsymmetricKey {
-    fn to_packet(&self) -> Result<Packet> {
+    fn to_packet(&self, encrypt_kind: crate::EncryptKind) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
         let kind = PacketKind::AsymmetricKey;
-        Ok(Packet::new(kind, contents))
+        Ok(Packet::new(kind, contents, encrypt_kind))
     }
 
     fn from_packet(packet: Packet) -> Result<AsymmetricKey> {
