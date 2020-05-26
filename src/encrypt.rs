@@ -1,5 +1,6 @@
 use crate::Packet;
-use orion::aead::SecretKey;
+use crate::Result;
+use orion::aead::{self, SecretKey};
 
 /// trait that allows for me to be lazy
 pub trait Encryption {
@@ -33,6 +34,13 @@ impl Encryption for SymmetricEncrypt {
 impl SymmetricEncrypt {
     pub fn new(key: SecretKey) -> SymmetricEncrypt {
         SymmetricEncrypt(key)
+    }
+
+    /// dear future izzy, this is a really bad idea
+    pub fn clone(&self) -> Result<SymmetricEncrypt> {
+        Ok(SymmetricEncrypt::new(aead::SecretKey::from_slice(
+            self.0.unprotected_as_bytes(),
+        )?))
     }
 }
 

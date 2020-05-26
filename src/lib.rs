@@ -41,6 +41,7 @@ pub trait Sendable: Sized {
 }
 
 /// data to be sent
+#[derive(Debug)]
 pub struct Packet {
     pub kind: PacketKind,
     pub encrypt_kind: EncryptKind,
@@ -52,7 +53,12 @@ impl Packet {
     /// create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>, encrypt_kind: EncryptKind) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet { kind, integrity_hash, contents, encrypt_kind }
+        Packet {
+            kind,
+            integrity_hash,
+            contents,
+            encrypt_kind,
+        }
     }
 
     // generate a checksum from the packet
@@ -93,13 +99,19 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents)
+            .as_ref()
+            .to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
             println!("bad integrity");
-            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
+            Err(IlmpError::BadHashIntegrity {
+                found: self.integrity_hash.clone(),
+                expected,
+            }
+            .into())
         }
     }
 
@@ -177,7 +189,12 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet { kind, contents, integrity_hash, encrypt_kind };
+    let packet = Packet {
+        kind,
+        contents,
+        integrity_hash,
+        encrypt_kind,
+    };
 
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
@@ -201,8 +218,9 @@ where
         EncryptKind::Symmetric => {
             let mut packet = packet.to_packet(encryption.kind())?;
             packet.contents = aead::seal(encryption.key().unwrap(), &packet.contents)?;
-            packet.integrity_hash =
-                digest::digest(&digest::SHA256, &packet.contents).as_ref().to_vec();
+            packet.integrity_hash = digest::digest(&digest::SHA256, &packet.contents)
+                .as_ref()
+                .to_vec();
             let network_packet = packet.to_network_packet();
             stream.write(&network_packet.0).await?;
             Ok(())
