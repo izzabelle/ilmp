@@ -17,11 +17,14 @@
 
 mod message;
 pub use message::Message;
-mod asymmetric_key;
-pub use asymmetric_key::AsymmetricKey;
+mod agreement;
+pub use agreement::Agreement;
+/// encryption types and functions
+pub mod encrypt;
 
+use encrypt::{EncryptKind, Encryption};
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
-use ring::{rand, signature::{self, KeyPair},digest};
+use ring::digest;
 use std::convert::TryInto;
 use std::marker::Unpin;
 use thiserror::Error;
@@ -117,7 +120,7 @@ impl Packet {
 #[repr(u8)]
 pub enum PacketKind {
     Message = 0x00,
-    AsymmetricKey = 0xff,
+    Agreement = 0xff,
 }
 
 impl PacketKind {
@@ -125,87 +128,7 @@ impl PacketKind {
     pub fn from_u8(kind: u8) -> Option<PacketKind> {
         match kind {
             0x00 => Some(PacketKind::Message),
-            0xff => Some(PacketKind::AsymmetricKey),
-            _ => None,
-        }
-    }
-}
-
-pub trait Encryption {
-    fn kind(&self) -> EncryptKind;
-    fn key(&self) -> Option<Vec<u8>>;
-}
-
-pub struct AsymmetricEncrypt(Vec<u8>);
-
-impl Encryption for AsymmetricEncrypt {
-    fn kind(&self) -> EncryptKind {
-        EncryptKind::Asymmetric
-    }
-
-    fn key(&self) -> Option<Vec<u8>> {
-        Some(self.0.clone())
-    }
-}
-
-impl AsymmetricEncrypt {
-    pub fn new(key: Vec<u8>) -> AsymmetricEncrypt {
-        AsymmetricEncrypt(key)
-    }
-}
-
-pub struct SymmetricEncrypt(Vec<u8>);
-
-impl Encryption for SymmetricEncrypt {
-    fn kind(&self) -> EncryptKind {
-        EncryptKind::Symmetric
-    }
-
-    fn key(&self) -> Option<Vec<u8>> {
-        Some(self.0.clone())
-    }
-}
-
-impl SymmetricEncrypt {
-    pub fn new(key: Vec<u8>) -> SymmetricEncrypt {
-        SymmetricEncrypt(key)
-    }
-}
-
-pub struct NoEncrypt;
-
-impl Encryption for NoEncrypt {
-    fn kind(&self) -> EncryptKind {
-        EncryptKind::None
-    }
-
-    fn key(&self) -> Option<Vec<u8>> {
-        None
-    }
-}
-
-impl NoEncrypt {
-    pub fn new() -> NoEncrypt {
-        NoEncrypt
-    }
-}
-
-/// encryption kind
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum EncryptKind {
-    None = 0x00,
-    Asymmetric = 0x80,
-    Symmetric = 0xff,
-}
-
-impl EncryptKind {
-    /// returns `EncryptKind` from u8 if returned value is valid
-    pub fn from_u8(kind: u8) -> Option<EncryptKind> {
-        match kind {
-            0x00 => Some(EncryptKind::None),
-            0x80 => Some(EncryptKind::Asymmetric),
-            0xff => Some(EncryptKind::Symmetric),
+            0xff => Some(PacketKind::Agreement),
             _ => None,
         }
     }
@@ -272,11 +195,6 @@ where
             stream.write(&network_packet.0).await?;
             Ok(())
         }
-        EncryptKind::Asymmetric => {
-            let 
-            let mut packet = packet;
-            packet.contents
-        },
         EncryptKind::Symmetric => todo!(),
     }
 }
