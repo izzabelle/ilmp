@@ -24,6 +24,7 @@ pub mod encrypt;
 
 use encrypt::{EncryptKind, Encryption};
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
+use orion::aead;
 use ring::digest;
 use std::convert::TryInto;
 use std::marker::Unpin;
@@ -43,8 +44,8 @@ pub trait Sendable: Sized {
 pub struct Packet {
     pub kind: PacketKind,
     pub encrypt_kind: EncryptKind,
-    integrity_hash: Vec<u8>,
-    contents: Vec<u8>,
+    pub integrity_hash: Vec<u8>,
+    pub contents: Vec<u8>,
 }
 
 impl Packet {
@@ -148,6 +149,8 @@ pub enum IlmpError {
     SerdeJson(#[from] serde_json::error::Error),
     #[error("string parsing error")]
     StringParse(#[from] std::string::FromUtf8Error),
+    #[error("orion error")]
+    Orion(#[from] orion::errors::UnknownCryptoError),
 }
 
 /// reads a `Packet` from a stream
@@ -183,7 +186,7 @@ where
 }
 
 /// writes a `Sendable` packet to a stream
-pub async fn write<S, P, E>(stream: &mut S, packet: P, encryption: E) -> Result<()>
+pub async fn write<S, P, E>(stream: &mut S, packet: P, encryption: &E) -> Result<()>
 where
     S: AsyncWriteExt + Unpin,
     P: Sendable,
@@ -195,6 +198,14 @@ where
             stream.write(&network_packet.0).await?;
             Ok(())
         }
-        EncryptKind::Symmetric => todo!(),
+        EncryptKind::Symmetric => {
+            let mut packet = packet.to_packet(encryption.kind())?;
+            packet.contents = aead::seal(encryption.key().unwrap(), &packet.contents)?;
+            packet.integrity_hash =
+                digest::digest(&digest::SHA256, &packet.contents).as_ref().to_vec();
+            let network_packet = packet.to_network_packet();
+            stream.write(&network_packet.0).await?;
+            Ok(())
+        }
     }
 }

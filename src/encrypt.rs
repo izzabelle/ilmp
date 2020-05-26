@@ -1,23 +1,24 @@
 use crate::Packet;
+use orion::aead::SecretKey;
 
 /// trait that allows for me to be lazy
 pub trait Encryption {
     fn kind(&self) -> EncryptKind;
-    fn key(&self) -> Option<Vec<u8>>;
+    fn key(&self) -> Option<&SecretKey>;
     fn encrypt(&self, packet: Packet) -> Packet;
     fn decrypt(&self, packet: Packet) -> Packet;
 }
 
 /// uses ring's aead module
-pub struct SymmetricEncrypt(Vec<u8>);
+pub struct SymmetricEncrypt(SecretKey);
 
 impl Encryption for SymmetricEncrypt {
     fn kind(&self) -> EncryptKind {
         EncryptKind::Symmetric
     }
 
-    fn key(&self) -> Option<Vec<u8>> {
-        Some(self.0.clone())
+    fn key(&self) -> Option<&SecretKey> {
+        Some(&self.0)
     }
 
     fn encrypt(&self, _packet: Packet) -> Packet {
@@ -30,7 +31,7 @@ impl Encryption for SymmetricEncrypt {
 }
 
 impl SymmetricEncrypt {
-    pub fn new(key: Vec<u8>) -> SymmetricEncrypt {
+    pub fn new(key: SecretKey) -> SymmetricEncrypt {
         SymmetricEncrypt(key)
     }
 }
@@ -44,7 +45,7 @@ impl Encryption for NoEncrypt {
     }
 
     // lol
-    fn key(&self) -> Option<Vec<u8>> {
+    fn key(&self) -> Option<&SecretKey> {
         None
     }
 
