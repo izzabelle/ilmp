@@ -1,8 +1,11 @@
+// namespacing
 use crate::{Packet, PacketKind, Result};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// packet to be used when server/client are coming to an agreement on
+/// encryption key material
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agreement {
     pub timestamp: i64,
@@ -11,10 +14,15 @@ pub struct Agreement {
 }
 
 impl Agreement {
+    /// creates a new agreement packet from a public key
     pub fn new(public_key: Vec<u8>) -> Agreement {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();
-        Agreement { timestamp, message_id, public_key }
+        Agreement {
+            timestamp,
+            message_id,
+            public_key,
+        }
     }
 }
 

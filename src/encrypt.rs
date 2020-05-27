@@ -1,13 +1,20 @@
+// namespacing
 use crate::Packet;
 use crate::Result;
 use orion::aead::{self, SecretKey};
+use ring::digest;
 
 /// trait that allows for me to be lazy
 pub trait Encryption {
+    /// return the encryption kind
     fn kind(&self) -> EncryptKind;
+    /// returns Option<SecretKey>
     fn key(&self) -> Option<&SecretKey>;
-    fn encrypt(&self, packet: Packet) -> Packet;
-    fn decrypt(&self, packet: Packet) -> Packet;
+    /// encrypts the packet contents and updates the integrity hash
+    fn encrypt(&self, packet: &mut Packet) -> Result<()>;
+    /// decrypts the packet contents, should only be used after integrity is
+    /// validated
+    fn decrypt(&self, packet: &mut Packet) -> Result<()>;
 }
 
 /// uses ring's aead module
@@ -22,20 +29,27 @@ impl Encryption for SymmetricEncrypt {
         Some(&self.0)
     }
 
-    fn encrypt(&self, _packet: Packet) -> Packet {
-        todo!()
+    fn encrypt(&self, packet: &mut Packet) -> Result<()> {
+        packet.contents = aead::seal(self.key().unwrap(), &packet.contents)?;
+        packet.integrity_hash = digest::digest(&digest::SHA256, &packet.contents)
+            .as_ref()
+            .to_vec();
+        Ok(())
     }
 
-    fn decrypt(&self, _packet: Packet) -> Packet {
-        todo!()
+    fn decrypt(&self, packet: &mut Packet) -> Result<()> {
+        packet.contents = aead::open(self.key().unwrap(), &packet.contents)?;
+        Ok(())
     }
 }
 
 impl SymmetricEncrypt {
+    /// creates a new symmetric encryption key wrapper struct
     pub fn new(key: SecretKey) -> SymmetricEncrypt {
         SymmetricEncrypt(key)
     }
 
+    #[doc(hidden)]
     /// dear future izzy, this is a really bad idea
     pub fn clone(&self) -> Result<SymmetricEncrypt> {
         Ok(SymmetricEncrypt::new(aead::SecretKey::from_slice(
@@ -46,6 +60,13 @@ impl SymmetricEncrypt {
 
 /// literally not encryption whatsoever
 pub struct NoEncrypt;
+
+impl NoEncrypt {
+    /// why
+    pub fn new() -> NoEncrypt {
+        NoEncrypt
+    }
+}
 
 impl Encryption for NoEncrypt {
     fn kind(&self) -> EncryptKind {
@@ -58,19 +79,13 @@ impl Encryption for NoEncrypt {
     }
 
     // lol
-    fn encrypt(&self, packet: Packet) -> Packet {
-        packet
+    fn encrypt(&self, _packet: &mut Packet) -> Result<()> {
+        Ok(())
     }
 
     // lol
-    fn decrypt(&self, packet: Packet) -> Packet {
-        packet
-    }
-}
-
-impl NoEncrypt {
-    pub fn new() -> NoEncrypt {
-        NoEncrypt
+    fn decrypt(&self, _packet: &mut Packet) -> Result<()> {
+        Ok(())
     }
 }
 

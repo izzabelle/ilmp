@@ -15,6 +15,7 @@
 //! | `u64::MAX`   | packet contents                            |
 //!
 
+// modules
 mod message;
 pub use message::Message;
 mod agreement;
@@ -22,16 +23,18 @@ pub use agreement::Agreement;
 /// encryption types and functions
 pub mod encrypt;
 
+// namespacing
 use encrypt::{EncryptKind, Encryption};
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
-use orion::aead;
 use ring::digest;
 use std::convert::TryInto;
 use std::marker::Unpin;
 use thiserror::Error;
 
+/// simple result
 pub type Result<T> = std::result::Result<T, IlmpError>;
 
+// packet that should be streamable
 struct NetworkPacket(Vec<u8>);
 
 /// a type of data that can be sent
@@ -73,6 +76,7 @@ impl Packet {
         hasher.finalize()
     }
 
+    // converts a to a network packet to be streamed
     fn to_network_packet(&self) -> NetworkPacket {
         let mut contents: Vec<u8> = Vec::new();
 
@@ -168,15 +172,17 @@ pub enum IlmpError {
 /// reads a `Packet` from a stream
 ///
 /// if `Ok(None)` is returned the stream has been disconnected.
-pub async fn read<S>(stream: &mut S) -> Result<Option<Packet>>
+pub async fn read<S, E>(stream: &mut S, encryption: &E) -> Result<Option<Packet>>
 where
     S: AsyncReadExt + Unpin,
+    E: Encryption,
 {
     let mut info_buf = [0u8; 14];
     let check = stream.read(&mut info_buf).await?;
     if check == 0 {
         return Ok(None);
     }
+    print!("reading packet... ");
 
     let kind = PacketKind::from_u8(info_buf[0]).unwrap();
     let encrypt_kind = EncryptKind::from_u8(info_buf[1]).unwrap();
@@ -189,7 +195,7 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let packet = Packet {
+    let mut packet = Packet {
         kind,
         contents,
         integrity_hash,
@@ -199,6 +205,10 @@ where
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
 
+    if packet.encrypt_kind == EncryptKind::Symmetric {
+        encryption.decrypt(&mut packet)?;
+    }
+    println!("[  Ok  ]");
     Ok(Some(packet))
 }
 
@@ -209,20 +219,20 @@ where
     P: Sendable,
     E: Encryption,
 {
+    print!("sending packet... ");
     match encryption.kind() {
         EncryptKind::None => {
             let network_packet = packet.to_packet(encryption.kind())?.to_network_packet();
             stream.write(&network_packet.0).await?;
+            println!("[  Ok  ]");
             Ok(())
         }
         EncryptKind::Symmetric => {
             let mut packet = packet.to_packet(encryption.kind())?;
-            packet.contents = aead::seal(encryption.key().unwrap(), &packet.contents)?;
-            packet.integrity_hash = digest::digest(&digest::SHA256, &packet.contents)
-                .as_ref()
-                .to_vec();
+            encryption.encrypt(&mut packet)?;
             let network_packet = packet.to_network_packet();
             stream.write(&network_packet.0).await?;
+            println!("[  Ok  ]");
             Ok(())
         }
     }
