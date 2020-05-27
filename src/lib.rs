@@ -26,7 +26,8 @@ pub mod encrypt;
 // namespacing
 use encrypt::{EncryptKind, Encryption};
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
-use ring::digest;
+use orion::aead;
+use ring::{agreement as agree, digest, rand};
 use std::convert::TryInto;
 use std::marker::Unpin;
 use thiserror::Error;
@@ -167,6 +168,8 @@ pub enum IlmpError {
     StringParse(#[from] std::string::FromUtf8Error),
     #[error("orion error")]
     Orion(#[from] orion::errors::UnknownCryptoError),
+    #[error("ring fucking broke")]
+    Ring,
 }
 
 /// reads a `Packet` from a stream
@@ -236,4 +239,39 @@ where
             Ok(())
         }
     }
+}
+
+/// uses ring's agree to generate key material and key
+pub async fn initialize_connection<R, W>(read: &mut R, write: &mut W) -> Result<aead::SecretKey>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    // create / send agree key
+    let rng = rand::SystemRandom::new();
+    let my_priv_key =
+        agree::EphemeralPrivateKey::generate(&agree::X25519, &rng).expect("ring broke");
+    let my_pub_key = my_priv_key.compute_public_key().expect("ring broke");
+    let agree_packet = Agreement::new(my_pub_key.as_ref().into());
+    crate::write(write, agree_packet, &encrypt::NoEncrypt::new()).await?;
+
+    // receive peer's pub key
+    let packet = crate::read(read, &encrypt::NoEncrypt::new())
+        .await?
+        .unwrap();
+    let agree_packet = Agreement::from_packet(packet)?;
+    let peer_pub_key = agree::UnparsedPublicKey::new(&agree::X25519, agree_packet.public_key);
+
+    // generate aead key
+    agree::agree_ephemeral(
+        my_priv_key,
+        &peer_pub_key,
+        IlmpError::Ring,
+        |key_material| {
+            let key_material = digest::digest(&digest::SHA256, key_material.as_ref().into())
+                .as_ref()
+                .to_vec();
+            Ok(aead::SecretKey::from_slice(&key_material)?)
+        },
+    )
 }
