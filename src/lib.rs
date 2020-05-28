@@ -40,7 +40,9 @@ struct NetworkPacket(Vec<u8>);
 
 /// a type of data that can be sent
 pub trait Sendable: Sized {
+    /// create a packet from the struct
     fn to_packet(&self, encrypt_kind: EncryptKind) -> Result<Packet>;
+    /// create the struct from a packet
     fn from_packet(packet: Packet) -> Result<Self>;
 }
 
@@ -169,7 +171,7 @@ pub enum IlmpError {
     #[error("orion error")]
     Orion(#[from] orion::errors::UnknownCryptoError),
     #[error("ring fucking broke")]
-    Ring,
+    Ring(#[from] ring::error::Unspecified),
 }
 
 /// reads a `Packet` from a stream
@@ -249,9 +251,8 @@ where
 {
     // create / send agree key
     let rng = rand::SystemRandom::new();
-    let my_priv_key =
-        agree::EphemeralPrivateKey::generate(&agree::X25519, &rng).expect("ring broke");
-    let my_pub_key = my_priv_key.compute_public_key().expect("ring broke");
+    let my_priv_key = agree::EphemeralPrivateKey::generate(&agree::X25519, &rng)?;
+    let my_pub_key = my_priv_key.compute_public_key()?;
     let agree_packet = Agreement::new(my_pub_key.as_ref().into());
     crate::write(write, agree_packet, &encrypt::NoEncrypt::new()).await?;
 
@@ -266,7 +267,7 @@ where
     agree::agree_ephemeral(
         my_priv_key,
         &peer_pub_key,
-        IlmpError::Ring,
+        IlmpError::Ring(ring::error::Unspecified),
         |key_material| {
             let key_material = digest::digest(&digest::SHA256, key_material.as_ref().into())
                 .as_ref()
