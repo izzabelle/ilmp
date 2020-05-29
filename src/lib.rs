@@ -47,7 +47,7 @@ pub trait Sendable: Sized {
 }
 
 /// data to be sent
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Packet {
     pub kind: PacketKind,
     pub encrypt_kind: EncryptKind,
@@ -59,12 +59,7 @@ impl Packet {
     /// create a new `Packet`
     pub fn new(kind: PacketKind, contents: Vec<u8>, encrypt_kind: EncryptKind) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet {
-            kind,
-            integrity_hash,
-            contents,
-            encrypt_kind,
-        }
+        Packet { kind, integrity_hash, contents, encrypt_kind }
     }
 
     // generate a checksum from the packet
@@ -106,19 +101,12 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents)
-            .as_ref()
-            .to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            println!("bad integrity");
-            Err(IlmpError::BadHashIntegrity {
-                found: self.integrity_hash.clone(),
-                expected,
-            }
-            .into())
+            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
         }
     }
 
@@ -129,7 +117,6 @@ impl Packet {
         if found == expected {
             Ok(())
         } else {
-            println!("bad checksum");
             Err(IlmpError::BadChecksumIntegrity { expected, found })
         }
     }
@@ -187,7 +174,6 @@ where
     if check == 0 {
         return Ok(None);
     }
-    print!("reading packet... ");
 
     let kind = PacketKind::from_u8(info_buf[0]).unwrap();
     let encrypt_kind = EncryptKind::from_u8(info_buf[1]).unwrap();
@@ -200,12 +186,7 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let mut packet = Packet {
-        kind,
-        contents,
-        integrity_hash,
-        encrypt_kind,
-    };
+    let mut packet = Packet { kind, contents, integrity_hash, encrypt_kind };
 
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
@@ -213,7 +194,6 @@ where
     if packet.encrypt_kind == EncryptKind::Symmetric {
         encryption.decrypt(&mut packet)?;
     }
-    println!("[  Ok  ]");
     Ok(Some(packet))
 }
 
@@ -224,12 +204,10 @@ where
     P: Sendable,
     E: Encryption,
 {
-    print!("sending packet... ");
     match encryption.kind() {
         EncryptKind::None => {
             let network_packet = packet.to_packet(encryption.kind())?.to_network_packet();
             stream.write(&network_packet.0).await?;
-            println!("[  Ok  ]");
             Ok(())
         }
         EncryptKind::Symmetric => {
@@ -237,7 +215,28 @@ where
             encryption.encrypt(&mut packet)?;
             let network_packet = packet.to_network_packet();
             stream.write(&network_packet.0).await?;
-            println!("[  Ok  ]");
+            Ok(())
+        }
+    }
+}
+
+/// writes a packet directly without conversion
+pub async fn write_packet<S, E>(stream: &mut S, packet: Packet, encryption: &E) -> Result<()>
+where
+    S: AsyncWriteExt + Unpin,
+    E: Encryption,
+{
+    match encryption.kind() {
+        EncryptKind::None => {
+            let network_packet = packet.to_network_packet();
+            stream.write(&network_packet.0).await?;
+            Ok(())
+        }
+        EncryptKind::Symmetric => {
+            let mut packet = packet;
+            encryption.encrypt(&mut packet)?;
+            let network_packet = packet.to_network_packet();
+            stream.write(&network_packet.0).await?;
             Ok(())
         }
     }
@@ -257,9 +256,7 @@ where
     crate::write(write, agree_packet, &encrypt::NoEncrypt::new()).await?;
 
     // receive peer's pub key
-    let packet = crate::read(read, &encrypt::NoEncrypt::new())
-        .await?
-        .unwrap();
+    let packet = crate::read(read, &encrypt::NoEncrypt::new()).await?.unwrap();
     let agree_packet = Agreement::from_packet(packet)?;
     let peer_pub_key = agree::UnparsedPublicKey::new(&agree::X25519, agree_packet.public_key);
 
@@ -269,9 +266,8 @@ where
         &peer_pub_key,
         IlmpError::Ring(ring::error::Unspecified),
         |key_material| {
-            let key_material = digest::digest(&digest::SHA256, key_material.as_ref().into())
-                .as_ref()
-                .to_vec();
+            let key_material =
+                digest::digest(&digest::SHA256, key_material.as_ref().into()).as_ref().to_vec();
             Ok(aead::SecretKey::from_slice(&key_material)?)
         },
     )
