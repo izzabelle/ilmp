@@ -16,11 +16,7 @@ impl Join {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();
 
-        Join {
-            timestamp,
-            message_id,
-            username,
-        }
+        Join { timestamp, message_id, username }
     }
 }
 

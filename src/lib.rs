@@ -65,12 +65,7 @@ impl Packet {
     /// create a new `Packet`
     pub fn new(kind: u8, contents: Vec<u8>, encrypt_flag: EncryptFlag) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet {
-            kind,
-            integrity_hash,
-            contents,
-            encrypt_flag,
-        }
+        Packet { kind, integrity_hash, contents, encrypt_flag }
     }
 
     // generate a checksum from the packet
@@ -112,18 +107,12 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents)
-            .as_ref()
-            .to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadHashIntegrity {
-                found: self.integrity_hash.clone(),
-                expected,
-            }
-            .into())
+            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
         }
     }
 
@@ -184,12 +173,7 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let mut packet = Packet {
-        kind,
-        contents,
-        integrity_hash,
-        encrypt_flag,
-    };
+    let mut packet = Packet { kind, contents, integrity_hash, encrypt_flag };
 
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
@@ -259,9 +243,7 @@ where
     crate::write(write, agree_packet, &encrypt::NoEncrypt::new()).await?;
 
     // receive peer's pub key
-    let packet = crate::read(read, &encrypt::NoEncrypt::new())
-        .await?
-        .unwrap();
+    let packet = crate::read(read, &encrypt::NoEncrypt::new()).await?.unwrap();
     let agree_packet = Agreement::from_packet(packet)?;
     let peer_pub_key = agree::UnparsedPublicKey::new(&agree::X25519, agree_packet.public_key);
 
@@ -271,9 +253,8 @@ where
         &peer_pub_key,
         IlmpError::Ring(ring::error::Unspecified),
         |key_material| {
-            let key_material = digest::digest(&digest::SHA256, key_material.as_ref().into())
-                .as_ref()
-                .to_vec();
+            let key_material =
+                digest::digest(&digest::SHA256, key_material.as_ref().into()).as_ref().to_vec();
             Ok(aead::SecretKey::from_slice(&key_material)?)
         },
     )

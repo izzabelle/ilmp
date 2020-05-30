@@ -18,11 +18,7 @@ impl Agreement {
     pub fn new(public_key: Vec<u8>) -> Agreement {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();
-        Agreement {
-            timestamp,
-            message_id,
-            public_key,
-        }
+        Agreement { timestamp, message_id, public_key }
     }
 }
 

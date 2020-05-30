@@ -31,9 +31,7 @@ impl Encryption for SymmetricEncrypt {
 
     fn encrypt(&self, packet: &mut Packet) -> Result<()> {
         packet.contents = aead::seal(self.key().unwrap(), &packet.contents)?;
-        packet.integrity_hash = digest::digest(&digest::SHA256, &packet.contents)
-            .as_ref()
-            .to_vec();
+        packet.integrity_hash = digest::digest(&digest::SHA256, &packet.contents).as_ref().to_vec();
         Ok(())
     }
 
@@ -52,9 +50,7 @@ impl SymmetricEncrypt {
     #[doc(hidden)]
     /// dear future izzy, this is a really bad idea
     pub fn clone(&self) -> Result<SymmetricEncrypt> {
-        Ok(SymmetricEncrypt::new(aead::SecretKey::from_slice(
-            self.0.unprotected_as_bytes(),
-        )?))
+        Ok(SymmetricEncrypt::new(aead::SecretKey::from_slice(self.0.unprotected_as_bytes())?))
     }
 }
 

@@ -18,19 +18,14 @@ impl Message {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();
 
-        Message {
-            username,
-            message_id,
-            timestamp,
-            contents,
-        }
+        Message { username, message_id, timestamp, contents }
     }
 }
 
 impl crate::Sendable for Message {
     fn to_packet(&self, encrypt_flag: crate::EncryptFlag) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
-        let kind = 0x00;
+        let kind = 0xfc;
         Ok(Packet::new(kind, contents, encrypt_flag))
     }
 
@@ -41,6 +36,6 @@ impl crate::Sendable for Message {
     }
 
     fn packet_kind(&self) -> u8 {
-        0x00
+        0xfc
     }
 }

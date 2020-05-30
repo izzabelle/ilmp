@@ -16,11 +16,7 @@ impl Leave {
         let timestamp = Utc::now().timestamp();
         let message_id = Uuid::new_v4().as_u128();
 
-        Leave {
-            timestamp,
-            message_id,
-            username,
-        }
+        Leave { timestamp, message_id, username }
     }
 }
 

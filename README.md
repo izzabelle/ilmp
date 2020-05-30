@@ -20,8 +20,8 @@ packet kind has defined values for packets but leaves many open for user defined
 
 | byte        | packet kind                                          |
 | ----------- | ---------------------------------------------------- |
-| `0x00`      | message - a simple text packet                       |
-| `0x01-0xfc` | valid for custom packet usage                        |
+| `0x00-0xfb` | valid for custom packet usage                        |
+| `0xfc`      | message - a simple text packet                       |
 | `0xfd`      | leave - announces a disconnect                       |
 | `0xfe`      | join - announces a new connection                    |
 | `0xff`      | agreement - used to help generate an agreed upon key |
