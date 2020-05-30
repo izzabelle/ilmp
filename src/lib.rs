@@ -8,7 +8,7 @@
 //! | segment size | usage                                      |
 //! |--------------|--------------------------------------------|
 //! | 1 byte       | u8 packet kind                             |
-//! | 1 byte       | u8 encrypt kind                            |
+//! | 1 byte       | u8 encrypt flag                            |
 //! | 8 byte       | u64 length of the packet contents          |
 //! | 4 byte       | CRC32 packet contents checksum             |
 //! | 32 byte      | SHA256 packet contents integrity check     |
@@ -41,25 +41,32 @@ struct NetworkPacket(Vec<u8>);
 /// a type of data that can be sent
 pub trait Sendable: Sized {
     /// create a packet from the struct
-    fn to_packet(&self, encrypt_kind: EncryptKind) -> Result<Packet>;
+    fn to_packet(&self, encrypt_flag: EncryptKind) -> Result<Packet>;
     /// create the struct from a packet
     fn from_packet(packet: Packet) -> Result<Self>;
+    /// returns the sendable's packet kind
+    fn packet_kind(&self) -> u8;
 }
 
 /// data to be sent
 #[derive(Debug, Clone)]
 pub struct Packet {
-    pub kind: PacketKind,
-    pub encrypt_kind: EncryptKind,
+    pub kind: u8,
+    pub encrypt_flag: EncryptKind,
     pub integrity_hash: Vec<u8>,
     pub contents: Vec<u8>,
 }
 
 impl Packet {
     /// create a new `Packet`
-    pub fn new(kind: PacketKind, contents: Vec<u8>, encrypt_kind: EncryptKind) -> Packet {
+    pub fn new(kind: u8, contents: Vec<u8>, encrypt_flag: EncryptKind) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
-        Packet { kind, integrity_hash, contents, encrypt_kind }
+        Packet {
+            kind,
+            integrity_hash,
+            contents,
+            encrypt_flag,
+        }
     }
 
     // generate a checksum from the packet
@@ -82,7 +89,7 @@ impl Packet {
         contents.push(self.kind as u8);
 
         // write encrypt kind byte
-        contents.push(self.encrypt_kind as u8);
+        contents.push(self.encrypt_flag as u8);
 
         // write the packet length
         let contents_length = self.contents.len() as u64;
@@ -101,12 +108,18 @@ impl Packet {
 
     /// verifies SHA256 integrity
     pub fn verify_integrity(&self) -> Result<()> {
-        let expected = digest::digest(&digest::SHA256, &self.contents).as_ref().to_vec();
+        let expected = digest::digest(&digest::SHA256, &self.contents)
+            .as_ref()
+            .to_vec();
 
         if expected == self.integrity_hash {
             Ok(())
         } else {
-            Err(IlmpError::BadHashIntegrity { found: self.integrity_hash.clone(), expected }.into())
+            Err(IlmpError::BadHashIntegrity {
+                found: self.integrity_hash.clone(),
+                expected,
+            }
+            .into())
         }
     }
 
@@ -122,7 +135,7 @@ impl Packet {
     }
 }
 
-/// kinds of packets that can be sent
+/*/// kinds of packets that can be sent
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketKind {
@@ -140,7 +153,7 @@ impl PacketKind {
         }
     }
 }
-
+*/
 /// ilmp's error type
 #[derive(Error, Debug)]
 pub enum IlmpError {
@@ -175,8 +188,8 @@ where
         return Ok(None);
     }
 
-    let kind = PacketKind::from_u8(info_buf[0]).unwrap();
-    let encrypt_kind = EncryptKind::from_u8(info_buf[1]).unwrap();
+    let kind = info_buf[0];
+    let encrypt_flag = EncryptKind::from_u8(info_buf[1]).unwrap();
     let length = u64::from_le_bytes(info_buf[2..10].try_into().unwrap()) as usize;
     let checksum = u32::from_le_bytes(info_buf[10..14].try_into().unwrap());
 
@@ -186,12 +199,17 @@ where
     let mut contents: Vec<u8> = vec![0; length];
     stream.read(&mut contents).await?;
 
-    let mut packet = Packet { kind, contents, integrity_hash, encrypt_kind };
+    let mut packet = Packet {
+        kind,
+        contents,
+        integrity_hash,
+        encrypt_flag,
+    };
 
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
 
-    if packet.encrypt_kind == EncryptKind::Symmetric {
+    if packet.encrypt_flag == EncryptKind::Symmetric {
         encryption.decrypt(&mut packet)?;
     }
     Ok(Some(packet))
@@ -256,7 +274,9 @@ where
     crate::write(write, agree_packet, &encrypt::NoEncrypt::new()).await?;
 
     // receive peer's pub key
-    let packet = crate::read(read, &encrypt::NoEncrypt::new()).await?.unwrap();
+    let packet = crate::read(read, &encrypt::NoEncrypt::new())
+        .await?
+        .unwrap();
     let agree_packet = Agreement::from_packet(packet)?;
     let peer_pub_key = agree::UnparsedPublicKey::new(&agree::X25519, agree_packet.public_key);
 
@@ -266,8 +286,9 @@ where
         &peer_pub_key,
         IlmpError::Ring(ring::error::Unspecified),
         |key_material| {
-            let key_material =
-                digest::digest(&digest::SHA256, key_material.as_ref().into()).as_ref().to_vec();
+            let key_material = digest::digest(&digest::SHA256, key_material.as_ref().into())
+                .as_ref()
+                .to_vec();
             Ok(aead::SecretKey::from_slice(&key_material)?)
         },
     )

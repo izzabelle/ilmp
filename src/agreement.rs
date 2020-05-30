@@ -1,5 +1,5 @@
 // namespacing
-use crate::{Packet, PacketKind, Result};
+use crate::{Packet, Result};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -29,7 +29,7 @@ impl Agreement {
 impl crate::Sendable for Agreement {
     fn to_packet(&self, encrypt_kind: crate::EncryptKind) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
-        let kind = PacketKind::Agreement;
+        let kind = 0xff;
         Ok(Packet::new(kind, contents, encrypt_kind))
     }
 
@@ -37,5 +37,9 @@ impl crate::Sendable for Agreement {
         let contents = &String::from_utf8(packet.contents)?;
         let agreement: Agreement = serde_json::from_str(contents)?;
         Ok(agreement)
+    }
+
+    fn packet_kind(&self) -> u8 {
+        0xff
     }
 }
