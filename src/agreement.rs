@@ -27,10 +27,10 @@ impl Agreement {
 }
 
 impl crate::Sendable for Agreement {
-    fn to_packet(&self, encrypt_kind: crate::EncryptKind) -> Result<Packet> {
+    fn to_packet(&self, encrypt_flag: crate::EncryptFlag) -> Result<Packet> {
         let contents: Vec<u8> = serde_json::to_string(&self)?.into_bytes();
         let kind = 0xff;
-        Ok(Packet::new(kind, contents, encrypt_kind))
+        Ok(Packet::new(kind, contents, encrypt_flag))
     }
 
     fn from_packet(packet: Packet) -> Result<Self> {

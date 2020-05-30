@@ -24,7 +24,7 @@ pub use agreement::Agreement;
 pub mod encrypt;
 
 // namespacing
-use encrypt::{EncryptKind, Encryption};
+use encrypt::{EncryptFlag, Encryption};
 use futures_util::io::{AsyncReadExt, AsyncWriteExt};
 use orion::aead;
 use ring::{agreement as agree, digest, rand};
@@ -41,7 +41,7 @@ struct NetworkPacket(Vec<u8>);
 /// a type of data that can be sent
 pub trait Sendable: Sized {
     /// create a packet from the struct
-    fn to_packet(&self, encrypt_flag: EncryptKind) -> Result<Packet>;
+    fn to_packet(&self, encrypt_flag: EncryptFlag) -> Result<Packet>;
     /// create the struct from a packet
     fn from_packet(packet: Packet) -> Result<Self>;
     /// returns the sendable's packet kind
@@ -52,14 +52,14 @@ pub trait Sendable: Sized {
 #[derive(Debug, Clone)]
 pub struct Packet {
     pub kind: u8,
-    pub encrypt_flag: EncryptKind,
+    pub encrypt_flag: EncryptFlag,
     pub integrity_hash: Vec<u8>,
     pub contents: Vec<u8>,
 }
 
 impl Packet {
     /// create a new `Packet`
-    pub fn new(kind: u8, contents: Vec<u8>, encrypt_flag: EncryptKind) -> Packet {
+    pub fn new(kind: u8, contents: Vec<u8>, encrypt_flag: EncryptFlag) -> Packet {
         let integrity_hash = digest::digest(&digest::SHA256, &contents).as_ref().to_vec();
         Packet {
             kind,
@@ -189,7 +189,7 @@ where
     }
 
     let kind = info_buf[0];
-    let encrypt_flag = EncryptKind::from_u8(info_buf[1]).unwrap();
+    let encrypt_flag = EncryptFlag::from_u8(info_buf[1]).unwrap();
     let length = u64::from_le_bytes(info_buf[2..10].try_into().unwrap()) as usize;
     let checksum = u32::from_le_bytes(info_buf[10..14].try_into().unwrap());
 
@@ -209,7 +209,7 @@ where
     packet.verify_checksum(checksum)?;
     packet.verify_integrity()?;
 
-    if packet.encrypt_flag == EncryptKind::Symmetric {
+    if packet.encrypt_flag == EncryptFlag::Symmetric {
         encryption.decrypt(&mut packet)?;
     }
     Ok(Some(packet))
@@ -223,12 +223,12 @@ where
     E: Encryption,
 {
     match encryption.kind() {
-        EncryptKind::None => {
+        EncryptFlag::None => {
             let network_packet = packet.to_packet(encryption.kind())?.to_network_packet();
             stream.write(&network_packet.0).await?;
             Ok(())
         }
-        EncryptKind::Symmetric => {
+        EncryptFlag::Symmetric => {
             let mut packet = packet.to_packet(encryption.kind())?;
             encryption.encrypt(&mut packet)?;
             let network_packet = packet.to_network_packet();
@@ -245,12 +245,12 @@ where
     E: Encryption,
 {
     match encryption.kind() {
-        EncryptKind::None => {
+        EncryptFlag::None => {
             let network_packet = packet.to_network_packet();
             stream.write(&network_packet.0).await?;
             Ok(())
         }
-        EncryptKind::Symmetric => {
+        EncryptFlag::Symmetric => {
             let mut packet = packet;
             encryption.encrypt(&mut packet)?;
             let network_packet = packet.to_network_packet();

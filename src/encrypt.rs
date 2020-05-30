@@ -7,7 +7,7 @@ use ring::digest;
 /// trait that allows for me to be lazy
 pub trait Encryption {
     /// return the encryption kind
-    fn kind(&self) -> EncryptKind;
+    fn kind(&self) -> EncryptFlag;
     /// returns Option<SecretKey>
     fn key(&self) -> Option<&SecretKey>;
     /// encrypts the packet contents and updates the integrity hash
@@ -21,8 +21,8 @@ pub trait Encryption {
 pub struct SymmetricEncrypt(SecretKey);
 
 impl Encryption for SymmetricEncrypt {
-    fn kind(&self) -> EncryptKind {
-        EncryptKind::Symmetric
+    fn kind(&self) -> EncryptFlag {
+        EncryptFlag::Symmetric
     }
 
     fn key(&self) -> Option<&SecretKey> {
@@ -69,8 +69,8 @@ impl NoEncrypt {
 }
 
 impl Encryption for NoEncrypt {
-    fn kind(&self) -> EncryptKind {
-        EncryptKind::None
+    fn kind(&self) -> EncryptFlag {
+        EncryptFlag::None
     }
 
     // lol
@@ -92,17 +92,17 @@ impl Encryption for NoEncrypt {
 /// encryption kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum EncryptKind {
+pub enum EncryptFlag {
     None = 0x00,
     Symmetric = 0xff,
 }
 
-impl EncryptKind {
-    /// returns `EncryptKind` from u8 if returned value is valid
-    pub fn from_u8(kind: u8) -> Option<EncryptKind> {
+impl EncryptFlag {
+    /// returns `EncryptFlag` from u8 if returned value is valid
+    pub fn from_u8(kind: u8) -> Option<EncryptFlag> {
         match kind {
-            0x00 => Some(EncryptKind::None),
-            0xff => Some(EncryptKind::Symmetric),
+            0x00 => Some(EncryptFlag::None),
+            0xff => Some(EncryptFlag::Symmetric),
             _ => None,
         }
     }
