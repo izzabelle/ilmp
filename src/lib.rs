@@ -20,6 +20,10 @@ mod message;
 pub use message::Message;
 mod agreement;
 pub use agreement::Agreement;
+mod join;
+pub use join::Join;
+mod leave;
+pub use leave::Leave;
 /// encryption types and functions
 pub mod encrypt;
 

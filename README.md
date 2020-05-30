@@ -19,8 +19,9 @@ but I'm lazy and it seems to work so gonna roll with it lol
 packet kind has defined values for packets but leaves many open for user defined packets to be added to the protocol
 
 | byte   | packet kind                                           |
-|--------|-------------------------------------------------------|
+| ------ | ----------------------------------------------------- |
 | `0x00` | message - a simple text packet                        |
+| `0xfe` | join - announces a new connection                     |
 | `0xff` | agreement - used to help generate an aggreed upon key |
 
 ### encrypt flag
