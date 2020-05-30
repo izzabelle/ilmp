@@ -135,25 +135,6 @@ impl Packet {
     }
 }
 
-/*/// kinds of packets that can be sent
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum PacketKind {
-    Message = 0x00,
-    Agreement = 0xff,
-}
-
-impl PacketKind {
-    /// returns `Option<PacketKind> given valid matching variant
-    pub fn from_u8(kind: u8) -> Option<PacketKind> {
-        match kind {
-            0x00 => Some(PacketKind::Message),
-            0xff => Some(PacketKind::Agreement),
-            _ => None,
-        }
-    }
-}
-*/
 /// ilmp's error type
 #[derive(Error, Debug)]
 pub enum IlmpError {
